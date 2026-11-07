@@ -68,6 +68,8 @@ export function normalizeTelemetryEnabledValue(value: unknown): unknown {
 }
 
 export function isTelemetryDisabledValue(value: unknown): boolean {
+  // The HTS sandbox must never transmit filesystem paths or usage telemetry.
+  if (process.env.HTS_MCP_READ_ONLY === '1') return true;
   return normalizeTelemetryEnabledValue(value) === false;
 }
 

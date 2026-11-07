@@ -25,6 +25,9 @@ function deferLog(level: string, message: string) {
 
 async function runServer() {
   try {
+    if (process.env.HTS_MCP_READ_ONLY === '1' && ['setup', 'remove', 'remote'].includes(process.argv[2] || '')) {
+      throw new Error('HTS read-only: remote and administrative startup modes are disabled.');
+    }
     // Check if first argument is "setup"
     if (process.argv[2] === 'setup') {
       await runSetup();
@@ -66,7 +69,9 @@ async function runServer() {
 
       // Initialize feature flags (non-blocking)
       deferLog('info', 'Initializing feature flags...');
-      await featureFlagManager.initialize();
+      if (process.env.HTS_MCP_READ_ONLY !== '1') {
+        await featureFlagManager.initialize();
+      }
     } catch (configError) {
       deferLog('error', `Failed to load configuration: ${configError instanceof Error ? configError.message : String(configError)}`);
       if (configError instanceof Error && configError.stack) {

@@ -1,4 +1,5 @@
 import path from 'path';
+import { assertHtsReadOnlyTool, isHtsReadOnlyMode, isHtsAllowedTool } from './utils/hts-readonly-mode.js';
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
     CallToolRequestSchema,
@@ -24,7 +25,9 @@ const PATH_GUIDANCE = `${getPathGuidance(SYSTEM_INFO)} Relative paths depend on 
 
 const CMD_PREFIX_DESCRIPTION = `This command can be referenced as "DC: ..." or "use Desktop Commander to ..." in your instructions.`;
 
-const SERVER_INSTRUCTIONS = `Desktop Commander provides tools for working with the user's authorized device.
+const SERVER_INSTRUCTIONS = isHtsReadOnlyMode()
+    ? 'HébergTonServ Desktop MCP est limité à la lecture de fichiers dans le dossier explicitement autorisé. Aucune commande, écriture, URL, configuration ou ressource UI ne peut être utilisée.'
+    : `Desktop Commander provides tools for working with the user's authorized device.
 - Filesystem tools handle direct file and directory operations within configured access boundaries.
 - Terminal process tools support shell commands, REPLs, and long-running processes. start_process creates a process session; interact_with_process sends input; read_process_output reads later output; force_terminate ends a session.
 - Search tools are session-based. start_search creates a search session; get_more_search_results reads its results; stop_search ends it early.
@@ -118,11 +121,14 @@ export const server = new Server(
 // Add handler for resources/list method
 server.setRequestHandler(ListResourcesRequestSchema, async () => {
     return {
-        resources: listUiResources(),
+        resources: isHtsReadOnlyMode() ? [] : listUiResources(),
     };
 });
 
 server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+    if (isHtsReadOnlyMode()) {
+        throw new Error('HTS read-only: MCP resources are disabled.');
+    }
     const { uri } = request.params;
     const response = await readUiResource(uri);
     if (response) {
@@ -223,7 +229,8 @@ server.setRequestHandler(InitializeRequestSchema, async (request: InitializeRequ
             // flag-served via welcome_page_excluded_clients (e.g. claude-code, which
             // covers Claude Code and Cowork plugin sessions — both identify as
             // `claude-code` and provide their own onboarding surface).
-            const isWelcomePageEligibleClient = currentClient.name !== 'desktop-commander-app'
+            const isWelcomePageEligibleClient = !isHtsReadOnlyMode()
+                && currentClient.name !== 'desktop-commander-app'
                 && currentClient.name !== 'desktop-commander'
                 && !isRemoteClientContext(currentClient.name)
                 && !(global as any).disableOnboarding;
@@ -1146,7 +1153,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         ];
 
         // Filter tools based on current client
-        const filteredTools = allTools.filter(tool => shouldIncludeTool(tool.name));
+        const filteredTools = allTools.filter(tool => shouldIncludeTool(tool.name) && isHtsAllowedTool(tool.name));
 
         // logToStderr('debug', `Returning ${filteredTools.length} tools (filtered from ${allTools.length} total) for client: ${currentClient?.name || 'unknown'}`);
 
@@ -1178,6 +1185,8 @@ function stillLoading(filePath: unknown, action: FileAction, options?: { isPdf?:
 
 server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest): Promise<ServerResult> => {
     const args = request.params.arguments;
+    // Enforce server-side access, not just a hidden tools/list entry.
+    await assertHtsReadOnlyTool(request.params.name, args);
     // Calls fired programmatically by the widget UIs (file preview, config
     // editor) carry origin:'ui'. They are real tool executions but not agent
     // actions, so they must produce zero telemetry: running them inside the
@@ -1250,7 +1259,7 @@ async function handleCallToolRequest(request: CallToolRequest): Promise<ServerRe
 
 
         // Track tool call
-        trackToolCall(name, args);
+        if (!isHtsReadOnlyMode()) trackToolCall(name, args);
 
         // Using a more structured approach with dedicated handlers
         // (result is declared above so the finally block can read execution status)

@@ -3,7 +3,9 @@ import os from 'os';
 
 // Use user's home directory for configuration files
 export const USER_HOME = os.homedir();
-const CONFIG_DIR = path.join(USER_HOME, '.claude-server-commander');
+const CONFIG_DIR = process.env.HTS_MCP_READ_ONLY === '1'
+  ? path.join(process.env.LOCALAPPDATA || USER_HOME, 'HebergTonServDesktop', 'mcp-readonly')
+  : path.join(USER_HOME, '.claude-server-commander');
 
 // Paths relative to the config directory
 export const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json');
